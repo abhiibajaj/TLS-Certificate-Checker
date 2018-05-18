@@ -10,8 +10,35 @@
 #include <stdio.h>
 #include <string.h>
 
-int main()
-{
+int main(int argc, char **argv) {
+
+    if (argc < 2) {
+        fprintf(stderr,"ERROR, no path provided\n");
+        exit(1);
+    }
+    char *filepath = argv[1];
+
+    FILE *input;
+    FILE *output;
+    input = fopen(filepath, "r");
+    output = fopen("output.csv", "w");
+    char * line = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    while ((read = getline(&line, &len, input)) != -1) {
+       
+        char *original = malloc(strlen(line));
+
+        strcpy(original, line);
+        char *context;
+        char *type_delimitter = ",";
+        strtok_r(line, type_delimitter, &context);
+       
+        fputs(original, output);
+    }
+
+
 
     const char test_cert_example[] = "./cert-file2.pem";
     BIO *certificate_bio = NULL;
