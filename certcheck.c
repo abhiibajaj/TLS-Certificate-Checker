@@ -15,7 +15,9 @@
 #define MINKEYSIZE 2048/8
 #define CA_CONSTRAINT "CA:FALSE"
 
-char *get_ext_data(X509_EXTENSION *extension);
+char* ext_data(X509_EXTENSION *extension);
+char* get_extension_data(const STACK_OF(X509_EXTENSION) *ext_list, 
+                    X509 *cert, int NID);
 
 int main(int argc, char **argv) {
 
@@ -160,22 +162,13 @@ int main(int argc, char **argv) {
 
         // get extension flags for basic constraints 
        
-        int exists = X509v3_get_ext_by_NID(ext_list, NID_basic_constraints, -1);
-        X509_EXTENSION *basic = X509_get_ext(cert, exists);
-        ASN1_OBJECT *basic_obj = X509_EXTENSION_get_object(basic);
-        char basic_buff[1024]; 
-        OBJ_obj2txt(basic_buff, 1024, basic_obj, 0);
-        printf("basic = %s\n", basic_buff);
-        
-        char *extension_data = get_ext_data(basic);
-        if(strcmp(extension_data, CA_CONSTRAINT)==0){
-            printf("CA IS FINE\n");
-        } else {
-            printf("CA IS NOT FINE\n");
-        }
+        char *extension_data = get_extension_data(ext_list, cert, NID_basic_constraints);
+        printf("%s\n", extension_data);
 
 
-        //Can print or parse value
+
+        // Get key usage data
+        extension_data = get_extension_data(ext_list, cert, NID_ext_key_usage);
         printf("%s\n", extension_data);
 
         //*********************
@@ -183,17 +176,35 @@ int main(int argc, char **argv) {
         //*********************
         X509_free(cert);
         BIO_free_all(certificate_bio);
+        printf("\n\n\n");
         
         
-        break;
         
     }
     
     exit(0);
 }
 
+
 char *
-get_ext_data(X509_EXTENSION *extension) {
+get_extension_data(const STACK_OF(X509_EXTENSION) *ext_list, 
+                    X509 *cert, int NID) {
+
+    int exists = X509v3_get_ext_by_NID(ext_list, NID, -1);
+
+    X509_EXTENSION *basic = X509_get_ext(cert, exists);
+    ASN1_OBJECT *basic_obj = X509_EXTENSION_get_object(basic);
+    char basic_buff[1024]; 
+    OBJ_obj2txt(basic_buff, 1024, basic_obj, 0);
+    printf("Extension = %s\n", basic_buff);
+        
+    char *extension_data = ext_data(basic);
+    return extension_data;
+
+}
+
+char *
+ext_data(X509_EXTENSION *extension) {
 
         BUF_MEM *bptr = NULL;
         char *buf = NULL;
