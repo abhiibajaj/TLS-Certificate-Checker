@@ -10,8 +10,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <stdint.h>
 
 #define MINKEYSIZE 2048/8
+
+char *get_ext_data(X509_EXTENSION *extension);
 
 int main(int argc, char **argv) {
 
@@ -85,7 +88,7 @@ int main(int argc, char **argv) {
         cert_issuer = X509_get_issuer_name(cert);
         char issuer_cn[256] = "Issuer CN NOT FOUND";
         X509_NAME_get_text_by_NID(cert_issuer, NID_commonName, issuer_cn, 256);
-        printf("Issuer CommonName:%s\n", issuer_cn);
+        //printf("Issuer CommonName:%s\n", issuer_cn);
 
         //List of extensions available at https://www.openssl.org/docs/man1.1.0/crypto/X509_REVOKED_get0_extensions.html
         //Need to check extension exists and is not null
@@ -93,15 +96,16 @@ int main(int argc, char **argv) {
         ASN1_OBJECT *obj = X509_EXTENSION_get_object(ex);
         char buff[1024]; 
         OBJ_obj2txt(buff, 1024, obj, 0);
-       // printf("Extension:%s\n", buff);
+        //printf("Extension:%s\n", buff);
+
+        // get certificate extensions
+        cert_inf = cert->cert_info;
+        ext_list = cert_inf->extensions;
 
         // current time 
-        time_t rawtime;
-        struct tm * current_time;
-        
-        
+        time_t rawtime;    
         time(&rawtime);
-        current_time = localtime (&rawtime);
+        localtime (&rawtime);
         ASN1_TIME *current = NULL;
         ASN1_TIME_set(current, rawtime);
 
@@ -139,7 +143,8 @@ int main(int argc, char **argv) {
             printf("Common Name is not fine\n");
         }
 
-
+        // https://stackoverflow.com/questions/27327365/openssl-how-to-find-out-what
+        // -the-bit-size-of-the-public-key-in-an-x509-certifica
         // Get key size
         EVP_PKEY *cert_key = X509_get_pubkey(cert);
         RSA *rsa = EVP_PKEY_get1_RSA(cert_key);
@@ -151,11 +156,44 @@ int main(int argc, char **argv) {
         }
         RSA_free(rsa);
 
+
+        // get extension flags for basic constraints 
+       
+        int exists = X509v3_get_ext_by_NID(ext_list, NID_basic_constraints, -1);
+        X509_EXTENSION *basic = X509_get_ext(cert, exists);
+        ASN1_OBJECT *basic_obj = X509_EXTENSION_get_object(basic);
+        char basic_buff[1024]; 
+        OBJ_obj2txt(basic_buff, 1024, basic_obj, 0);
+        printf("basic = %s\n", basic_buff);
+        
+        char *extension_data = get_ext_data(basic);
+
+
+
+        //Can print or parse value
+        printf("%s\n", extension_data);
+
+        //*********************
+        // End of Example code
+        //*********************
+        X509_free(cert);
+        BIO_free_all(certificate_bio);
+        
+        
+        break;
+        
+    }
+    
+    exit(0);
+}
+
+char *
+get_ext_data(X509_EXTENSION *extension) {
+
         BUF_MEM *bptr = NULL;
         char *buf = NULL;
-
         BIO *bio = BIO_new(BIO_s_mem());
-        if (!X509V3_EXT_print(bio, ex, 0, 0))
+        if (!X509V3_EXT_print(bio, extension, 0, 0))
         {
             fprintf(stderr, "Error in reading extensions");
         } 
@@ -169,20 +207,7 @@ int main(int argc, char **argv) {
         buf = (char *)malloc((bptr->length + 1) * sizeof(char));
         memcpy(buf, bptr->data, bptr->length);
         buf[bptr->length] = '\0';
-
-        //Can print or parse value
-        //printf("%s\n", buf);
-
-        //*********************
-        // End of Example code
-        //*********************
-        X509_free(cert);
-        BIO_free_all(certificate_bio);
-        BIO_free_all(bio);
-        free(buf);
-        break;
         
-    }
-    
-    exit(0);
+        BIO_free_all(bio);
+        return buf;
 }

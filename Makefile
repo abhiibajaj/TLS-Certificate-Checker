@@ -2,7 +2,8 @@
 ##Name: Arpit Bajaj
 ##Login: bajaja@student.unimelb.edu.au
 CC=gcc
-CFLAGS=-Wall -Wextra -std=gnu99 -I. -O3 -lpthread -lssl -lcrypto
+LDFLAGS = -L/usr/local/ssl/lib
+CFLAGS=-Wall -Wextra -std=gnu99 -I. -O3 -lssl -lcrypto 
 OBJ = certcheck.o 
 EXE = certcheck
 
