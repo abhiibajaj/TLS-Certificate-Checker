@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #define MINKEYSIZE 2048/8
+#define CA_CONSTRAINT "CA:FALSE"
 
 char *get_ext_data(X509_EXTENSION *extension);
 
@@ -167,7 +168,11 @@ int main(int argc, char **argv) {
         printf("basic = %s\n", basic_buff);
         
         char *extension_data = get_ext_data(basic);
-
+        if(strcmp(extension_data, CA_CONSTRAINT)==0){
+            printf("CA IS FINE\n");
+        } else {
+            printf("CA IS NOT FINE\n");
+        }
 
 
         //Can print or parse value
