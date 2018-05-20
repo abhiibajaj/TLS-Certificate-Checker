@@ -9,6 +9,9 @@
 #include <openssl/err.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+#define MINKEYSIZE 2048/8
 
 int main(int argc, char **argv) {
 
@@ -27,7 +30,7 @@ int main(int argc, char **argv) {
     ssize_t read;
     char *test_cert_example;
    
-
+    char correct = '0';
 
     //const char test_cert_example[] = "./cert-file2.pem";
     BIO *certificate_bio = NULL;
@@ -43,11 +46,14 @@ int main(int argc, char **argv) {
     while ((read = getline(&line, &len, input)) != -1) {
        
         char *original = malloc(strlen(line));
-
         strcpy(original, line);
-        char *website;
+
+        char *website_nl;
         char *type_delimitter = ",";
-        strtok_r(line, type_delimitter, &website);
+        strtok_r(line, type_delimitter, &website_nl);
+
+        // get rid of new line
+        char *website = strtok(website_nl, "\r\n");
         test_cert_example = malloc(strlen(line));
         strcpy(test_cert_example, line);
         //printf("%s\n", line);
@@ -87,7 +93,63 @@ int main(int argc, char **argv) {
         ASN1_OBJECT *obj = X509_EXTENSION_get_object(ex);
         char buff[1024]; 
         OBJ_obj2txt(buff, 1024, obj, 0);
-        printf("Extension:%s\n", buff);
+       // printf("Extension:%s\n", buff);
+
+        // current time 
+        time_t rawtime;
+        struct tm * current_time;
+        
+        
+        time(&rawtime);
+        current_time = localtime (&rawtime);
+        ASN1_TIME *current = NULL;
+        ASN1_TIME_set(current, rawtime);
+
+        // get before
+        ASN1_TIME *before_time = X509_get_notBefore(cert);
+        
+        // get after
+        ASN1_TIME *after_time = X509_get_notAfter(cert);
+
+        // check before time
+        int pday, psec;
+        ASN1_TIME_diff(&pday, &psec, before_time, current);
+        if(pday > 0 || psec > 0){
+            printf("Before: FINE\n");
+        } else {
+            printf("Before: not fine\n");
+        }
+
+        // check after time
+        ASN1_TIME_diff(&pday, &psec, current, after_time);
+        if(pday > 0 || psec > 0){
+            printf("After: FINE\n");
+        } else {
+            printf("After: not fine\n");
+        }
+
+        // get common name 
+        X509_NAME *common_name = NULL;
+        common_name = X509_get_subject_name(cert);
+        char domain_cn[256] = "Domain CN NOT FOUND";
+        X509_NAME_get_text_by_NID(common_name, NID_commonName, domain_cn, 256);
+        if(strcmp(domain_cn, website)==0){
+            printf("Common name is fine\n");
+        } else {
+            printf("Common Name is not fine\n");
+        }
+
+
+        // Get key size
+        EVP_PKEY *cert_key = X509_get_pubkey(cert);
+        RSA *rsa = EVP_PKEY_get1_RSA(cert_key);
+        int key_length = RSA_size(rsa);
+        if(key_length >= MINKEYSIZE){
+            printf("Key size is fine\n");
+        } else {
+            printf("Key size is not fine\n");
+        }
+        RSA_free(rsa);
 
         BUF_MEM *bptr = NULL;
         char *buf = NULL;
@@ -96,17 +158,20 @@ int main(int argc, char **argv) {
         if (!X509V3_EXT_print(bio, ex, 0, 0))
         {
             fprintf(stderr, "Error in reading extensions");
-        }
+        } 
+        //ASN1_TIME_print(bio, current);
+
         BIO_flush(bio);
         BIO_get_mem_ptr(bio, &bptr);
-
+        
+        
         //bptr->data is not NULL terminated - add null character
         buf = (char *)malloc((bptr->length + 1) * sizeof(char));
         memcpy(buf, bptr->data, bptr->length);
         buf[bptr->length] = '\0';
 
         //Can print or parse value
-        printf("%s\n", buf);
+        //printf("%s\n", buf);
 
         //*********************
         // End of Example code
@@ -115,6 +180,8 @@ int main(int argc, char **argv) {
         BIO_free_all(certificate_bio);
         BIO_free_all(bio);
         free(buf);
+        break;
+        
     }
     
     exit(0);
