@@ -11,13 +11,23 @@
 #include <string.h>
 #include <time.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define MINKEYSIZE 2048/8
+#define WILDCARD_START 2
 #define CA_CONSTRAINT "CA:FALSE"
+#define WILDCARD "*."
+#define WWW "www."
+#define TLS "TLS Web Server Authentication"
 
 char* ext_data(X509_EXTENSION *extension);
 char* get_extension_data(const STACK_OF(X509_EXTENSION) *ext_list, 
                     X509 *cert, int NID);
+bool check_name(X509* cert, char *website);
+bool check_wildcard(char *domain_cn, char* website);
+bool valid_wildcard(char *domain_cn);
+bool check_www(char* website);
+bool check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert);
 
 int main(int argc, char **argv) {
 
@@ -83,23 +93,6 @@ int main(int argc, char **argv) {
         }
 
         //cert contains the x509 certificate and can be used to analyse the certificate
-        
-        //*********************
-        // Example code of accessing certificate values
-        //*********************
-
-        cert_issuer = X509_get_issuer_name(cert);
-        char issuer_cn[256] = "Issuer CN NOT FOUND";
-        X509_NAME_get_text_by_NID(cert_issuer, NID_commonName, issuer_cn, 256);
-        //printf("Issuer CommonName:%s\n", issuer_cn);
-
-        //List of extensions available at https://www.openssl.org/docs/man1.1.0/crypto/X509_REVOKED_get0_extensions.html
-        //Need to check extension exists and is not null
-        X509_EXTENSION *ex = X509_get_ext(cert, X509_get_ext_by_NID(cert, NID_subject_key_identifier, -1));
-        ASN1_OBJECT *obj = X509_EXTENSION_get_object(ex);
-        char buff[1024]; 
-        OBJ_obj2txt(buff, 1024, obj, 0);
-        //printf("Extension:%s\n", buff);
 
         // get certificate extensions
         cert_inf = cert->cert_info;
@@ -135,15 +128,12 @@ int main(int argc, char **argv) {
             printf("After: not fine\n");
         }
 
-        // get common name 
-        X509_NAME *common_name = NULL;
-        common_name = X509_get_subject_name(cert);
-        char domain_cn[256] = "Domain CN NOT FOUND";
-        X509_NAME_get_text_by_NID(common_name, NID_commonName, domain_cn, 256);
-        if(strcmp(domain_cn, website)==0){
-            printf("Common name is fine\n");
-        } else {
-            printf("Common Name is not fine\n");
+        if(!check_name(cert, website)){
+           // check_subject_alt();
+            // Get subject alternative name data
+            //char *extension_data = get_extension_data(ext_list, cert, NID_subject_alt_name);
+            
+            //printf("%s\n", extension_data);
         }
 
         // https://stackoverflow.com/questions/27327365/openssl-how-to-find-out-what
@@ -167,10 +157,16 @@ int main(int argc, char **argv) {
 
 
 
-        // Get key usage data
+        // Get enhanced key usage data
         extension_data = get_extension_data(ext_list, cert, NID_ext_key_usage);
         printf("%s\n", extension_data);
+        if(strstr(extension_data, TLS)){
+            printf("Contains TLS WEB Server authentication\n");
+        } else {
+            printf("Doesn't have tls\n");
+        }
 
+        
         //*********************
         // End of Example code
         //*********************
@@ -178,27 +174,107 @@ int main(int argc, char **argv) {
         BIO_free_all(certificate_bio);
         printf("\n\n\n");
         
-        
+        break;
         
     }
+    fclose(input);
+    fclose(output);
     
     exit(0);
 }
 
+bool 
+check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert) {
+    //char *extension_data = get_extension_data(ext_list, cert, NID_subject_alt_name);
+            
+    //printf("%s\n", extension_data);
+}
+
+
+bool
+check_name(X509 *cert, char* website){
+        // get common name 
+        X509_NAME *common_name = NULL;
+        common_name = X509_get_subject_name(cert);
+        char domain_cn[256] = "Domain CN NOT FOUND";
+        X509_NAME_get_text_by_NID(common_name, NID_commonName, domain_cn, 256);
+        bool valid = false;
+        if(strcmp(domain_cn, website)==0){
+            valid = true;
+        } else {
+            valid = check_wildcard(domain_cn, website);
+            
+        }
+        return valid;
+}
+bool
+check_wildcard(char *domain_cn, char *website){
+    
+    if(valid_wildcard(domain_cn)){
+
+        // chop off the first two characters to get the website without *.
+        char *domain_copy = malloc(strlen(domain_cn));
+        strcpy(domain_copy, domain_cn);
+        domain_copy+=WILDCARD_START;
+
+
+        char *website_copy = malloc(strlen(website));
+        strcpy(website_copy, website);
+        
+
+        // remove WWW if it has it
+        if(check_www(website)){
+            website_copy+=strlen(WWW);
+        }
+        
+        if(strcmp(domain_copy, website_copy)==0){
+            printf("Matches wildcard\n" );
+            return true;
+        }              
+    }
+    return false;
+}
+
+bool
+check_www(char* website){
+    char *checker = (char*) malloc(sizeof(char) * strlen(WWW)+1);
+    strncpy(checker, website, strlen(WWW));
+    checker[strlen(WWW)] = '\0';
+    if(strcmp(checker, WWW)==0){
+        printf("IT HAS WWW.\n" );
+        return true;
+    }
+    return false;
+}
+
+bool 
+valid_wildcard(char *domain_cn){
+    char *checker = (char*) malloc(sizeof(char) * WILDCARD_START+1);
+    strncpy(checker, domain_cn, 2);
+    checker[WILDCARD_START] = '\0';
+    if(strcmp(checker, WILDCARD)==0){
+        return true;
+    }
+    return false;
+}
 
 char *
 get_extension_data(const STACK_OF(X509_EXTENSION) *ext_list, 
                     X509 *cert, int NID) {
 
     int exists = X509v3_get_ext_by_NID(ext_list, NID, -1);
+    char* extension_data=NULL;    
+    if(exists!=-1){
 
-    X509_EXTENSION *basic = X509_get_ext(cert, exists);
-    ASN1_OBJECT *basic_obj = X509_EXTENSION_get_object(basic);
-    char basic_buff[1024]; 
-    OBJ_obj2txt(basic_buff, 1024, basic_obj, 0);
-    printf("Extension = %s\n", basic_buff);
-        
-    char *extension_data = ext_data(basic);
+
+        X509_EXTENSION *basic = X509_get_ext(cert, exists);
+        ASN1_OBJECT *basic_obj = X509_EXTENSION_get_object(basic);
+        char basic_buff[1024]; 
+        OBJ_obj2txt(basic_buff, 1024, basic_obj, 0);
+        printf("Extension = %s\n", basic_buff);
+        extension_data = ext_data(basic);
+    
+    }
     return extension_data;
 
 }
@@ -213,7 +289,7 @@ ext_data(X509_EXTENSION *extension) {
         {
             fprintf(stderr, "Error in reading extensions");
         } 
-        //ASN1_TIME_print(bio, current);
+        
 
         BIO_flush(bio);
         BIO_get_mem_ptr(bio, &bptr);
