@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
         strcpy(test_cert_example, line);
         //printf("%s\n", line);
 
-        
+       
     
 
         //create BIO object to read certificate
@@ -303,15 +303,13 @@ check_wildcard(char *name, char *website){
         char *website_copy = malloc(strlen(website));
         strcpy(website_copy, website);
         
-
-        // remove WWW, if no www -> invalid as need a subdomain
-        if(check_www(website)){
-            website_copy+=strlen(WWW);
-        } else {
-            return false;
-        }
         
-        if(strcmp(domain_copy, website_copy)==0){
+        char *website_full_stop;
+        char *type_delimitter = ".";
+        strtok_r(website_copy, type_delimitter, &website_full_stop);
+        
+
+        if(strcmp(domain_copy, website_full_stop)==0){
             return true;
         }              
     }
@@ -320,6 +318,8 @@ check_wildcard(char *name, char *website){
 
 bool
 check_www(char* website){
+
+   
     char *checker = (char*) malloc(sizeof(char) * strlen(WWW)+1);
     strncpy(checker, website, strlen(WWW));
     checker[strlen(WWW)] = '\0';
@@ -333,7 +333,7 @@ check_www(char* website){
 bool 
 valid_wildcard(char *domain_cn){
     char *checker = (char*) malloc(sizeof(char) * WILDCARD_START+1);
-    strncpy(checker, domain_cn, 2);
+    strncpy(checker, domain_cn, WILDCARD_START);
     checker[WILDCARD_START] = '\0';
     if(strcmp(checker, WILDCARD)==0){
         return true;
