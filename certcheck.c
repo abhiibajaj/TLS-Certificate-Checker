@@ -18,16 +18,18 @@
 #define CA_CONSTRAINT "CA:FALSE"
 #define WILDCARD "*."
 #define WWW "www."
+#define DNS "DNS:"
 #define TLS "TLS Web Server Authentication"
 
 char* ext_data(X509_EXTENSION *extension);
 char* get_extension_data(const STACK_OF(X509_EXTENSION) *ext_list, 
                     X509 *cert, int NID);
-bool check_name(X509* cert, char *website);
+bool check_common_name(X509* cert, char *website);
 bool check_wildcard(char *domain_cn, char* website);
+bool check_name(char *name, char *website);
 bool valid_wildcard(char *domain_cn);
 bool check_www(char* website);
-bool check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert);
+bool check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *website);
 
 int main(int argc, char **argv) {
 
@@ -128,12 +130,15 @@ int main(int argc, char **argv) {
             printf("After: not fine\n");
         }
 
-        if(!check_name(cert, website)){
-           // check_subject_alt();
-            // Get subject alternative name data
-            //char *extension_data = get_extension_data(ext_list, cert, NID_subject_alt_name);
+        if(!check_common_name(cert, website)){
+
             
-            //printf("%s\n", extension_data);
+            // Get subject alternative name data
+            
+        }
+        bool valid =  check_subject_alt(ext_list, cert, website);
+        if(valid){
+            printf("VALID THROUGH ALT");
         }
 
         // https://stackoverflow.com/questions/27327365/openssl-how-to-find-out-what
@@ -184,37 +189,58 @@ int main(int argc, char **argv) {
 }
 
 bool 
-check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert) {
-    //char *extension_data = get_extension_data(ext_list, cert, NID_subject_alt_name);
-            
-    //printf("%s\n", extension_data);
+check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *website) {
+    bool valid = false;
+    char *extension_data = get_extension_data(ext_list, cert, NID_subject_alt_name);
+    if(extension_data!=NULL){
+        printf("%s\n", extension_data);
+        /* Extract the path from the http request in the buffer*/
+        char *query = extension_data;
+        while ((query= strtok(query, ", ")) != NULL) {
+        
+            char *alt_name = malloc(strlen(query));
+            strcpy(alt_name, query);
+            alt_name+=strlen(DNS);
+            if(check_name(alt_name, website)){
+                valid  = true;
+                break;
+            }
+            query=NULL;
+        }
+    }  
+    return valid;
 }
 
 
 bool
-check_name(X509 *cert, char* website){
+check_common_name(X509 *cert, char* website){
         // get common name 
         X509_NAME *common_name = NULL;
         common_name = X509_get_subject_name(cert);
         char domain_cn[256] = "Domain CN NOT FOUND";
         X509_NAME_get_text_by_NID(common_name, NID_commonName, domain_cn, 256);
-        bool valid = false;
-        if(strcmp(domain_cn, website)==0){
-            valid = true;
-        } else {
-            valid = check_wildcard(domain_cn, website);
-            
-        }
-        return valid;
+        return check_name(domain_cn, website);
+        
 }
 bool
-check_wildcard(char *domain_cn, char *website){
+check_name(char* name, char *website){
+    bool valid = false;
+    if(strcmp(name, website)==0){
+         valid = true;
+    } else {
+         valid = check_wildcard(name, website);
+            
+    }
+    return valid;
+}
+bool
+check_wildcard(char *name, char *website){
     
-    if(valid_wildcard(domain_cn)){
+    if(valid_wildcard(name)){
 
         // chop off the first two characters to get the website without *.
-        char *domain_copy = malloc(strlen(domain_cn));
-        strcpy(domain_copy, domain_cn);
+        char *domain_copy = malloc(strlen(name));
+        strcpy(domain_copy, name);
         domain_copy+=WILDCARD_START;
 
 
@@ -228,7 +254,6 @@ check_wildcard(char *domain_cn, char *website){
         }
         
         if(strcmp(domain_copy, website_copy)==0){
-            printf("Matches wildcard\n" );
             return true;
         }              
     }
