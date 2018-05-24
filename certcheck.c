@@ -20,16 +20,27 @@
 #define WWW "www."
 #define DNS "DNS:"
 #define TLS "TLS Web Server Authentication"
+#define VALID ",1\r\n"
+#define INVAlID ",0\r\n"
+
+
 
 char* ext_data(X509_EXTENSION *extension);
 char* get_extension_data(const STACK_OF(X509_EXTENSION) *ext_list, 
                     X509 *cert, int NID);
+bool check_time(X509 *cert);
 bool check_common_name(X509* cert, char *website);
+bool check_basic_constraints(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert);
 bool check_wildcard(char *domain_cn, char* website);
 bool check_name(char *name, char *website);
+bool check_key(X509 *cert);
+bool valid_time(ASN1_TIME *cert_time, ASN1_TIME *current_time);
+bool check_containing(char *extension_data, char *constraint);
 bool valid_wildcard(char *domain_cn);
 bool check_www(char* website);
 bool check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *website);
+bool check_overall_name(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *website);
+bool check_extended_key(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert);
 
 int main(int argc, char **argv) {
 
@@ -48,9 +59,8 @@ int main(int argc, char **argv) {
     ssize_t read;
     char *test_cert_example;
    
-    char correct = '0';
+    char *result;
 
-    //const char test_cert_example[] = "./cert-file2.pem";
     BIO *certificate_bio = NULL;
     X509 *cert = NULL;
     X509_NAME *cert_issuer = NULL;
@@ -62,9 +72,11 @@ int main(int argc, char **argv) {
     ERR_load_BIO_strings();
     ERR_load_crypto_strings();
     while ((read = getline(&line, &len, input)) != -1) {
-       
-        char *original = malloc(strlen(line));
-        strcpy(original, line);
+
+
+        result = INVAlID;
+        char *original_nl = malloc(strlen(line));
+        strcpy(original_nl, line);
 
         char *website_nl;
         char *type_delimitter = ",";
@@ -76,7 +88,7 @@ int main(int argc, char **argv) {
         strcpy(test_cert_example, line);
         //printf("%s\n", line);
 
-        fputs(original, output);
+        
     
 
         //create BIO object to read certificate
@@ -96,90 +108,50 @@ int main(int argc, char **argv) {
 
         //cert contains the x509 certificate and can be used to analyse the certificate
 
-        // get certificate extensions
+        // get certificate extensions and info
         cert_inf = cert->cert_info;
         ext_list = cert_inf->extensions;
 
-        // current time 
-        time_t rawtime;    
-        time(&rawtime);
-        localtime (&rawtime);
-        ASN1_TIME *current = NULL;
-        ASN1_TIME_set(current, rawtime);
-
-        // get before
-        ASN1_TIME *before_time = X509_get_notBefore(cert);
         
-        // get after
-        ASN1_TIME *after_time = X509_get_notAfter(cert);
+        bool valid_name = check_overall_name(ext_list, cert, website);
+       
+        
+        bool valid_time = check_time(cert);
+       
+        bool valid_key = check_key(cert);
+       
 
-        // check before time
-        int pday, psec;
-        ASN1_TIME_diff(&pday, &psec, before_time, current);
-        if(pday > 0 || psec > 0){
-            printf("Before: FINE\n");
-        } else {
-            printf("Before: not fine\n");
-        }
 
-        // check after time
-        ASN1_TIME_diff(&pday, &psec, current, after_time);
-        if(pday > 0 || psec > 0){
-            printf("After: FINE\n");
-        } else {
-            printf("After: not fine\n");
-        }
-
-        if(!check_common_name(cert, website)){
-
-            
-            // Get subject alternative name data
-            
-        }
-        bool valid =  check_subject_alt(ext_list, cert, website);
-        if(valid){
-            printf("VALID THROUGH ALT");
-        }
-
-        // https://stackoverflow.com/questions/27327365/openssl-how-to-find-out-what
-        // -the-bit-size-of-the-public-key-in-an-x509-certifica
-        // Get key size
-        EVP_PKEY *cert_key = X509_get_pubkey(cert);
-        RSA *rsa = EVP_PKEY_get1_RSA(cert_key);
-        int key_length = RSA_size(rsa);
-        if(key_length >= MINKEYSIZE){
-            printf("Key size is fine\n");
-        } else {
-            printf("Key size is not fine\n");
-        }
-        RSA_free(rsa);
+        
 
 
         // get extension flags for basic constraints 
+        bool valid_basic = check_basic_constraints(ext_list, cert);
        
-        char *extension_data = get_extension_data(ext_list, cert, NID_basic_constraints);
-        printf("%s\n", extension_data);
-
-
+        
 
         // Get enhanced key usage data
-        extension_data = get_extension_data(ext_list, cert, NID_ext_key_usage);
-        printf("%s\n", extension_data);
-        if(strstr(extension_data, TLS)){
-            printf("Contains TLS WEB Server authentication\n");
-        } else {
-            printf("Doesn't have tls\n");
+        bool valid_extended_key = check_extended_key(ext_list, cert);
+      
+        if (valid_name && valid_time &&valid_key && valid_basic && valid_extended_key){
+            result = VALID;
         }
-
         
+        // get rid of new line from original
+        char *original =strtok(original_nl, "\r\n");
+        char *output_line = malloc(strlen(original)+strlen(result)+1); // one extra for null byte
+        strcpy(output_line, original);
+        strcat(output_line, result);
+        fputs(output_line, output);
+       
         //*********************
         // End of Example code
         //*********************
         X509_free(cert);
         BIO_free_all(certificate_bio);
-        printf("\n\n\n");
         
-        break;
+        
+        
         
     }
     fclose(input);
@@ -188,16 +160,101 @@ int main(int argc, char **argv) {
     exit(0);
 }
 
+bool
+check_extended_key(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert){
+    char *extension_data = get_extension_data(ext_list, cert, NID_ext_key_usage);
+    return check_containing(extension_data, TLS);
+}
+
+bool 
+check_basic_constraints(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert){
+    char *extension_data = get_extension_data(ext_list, cert, NID_basic_constraints);
+    return check_containing(extension_data, CA_CONSTRAINT);
+    
+}
+
+bool
+check_containing(char *extension_data, char *constraint){
+    if(strstr(extension_data, constraint)){
+        return true;
+    } 
+    return false;
+}
+bool 
+check_key(X509 *cert){
+
+    // https://stackoverflow.com/questions/27327365/openssl-how-to-find-out-what
+    // -the-bit-size-of-the-public-key-in-an-x509-certifica
+
+    // Get key size
+    bool valid_key = false;
+    EVP_PKEY *cert_key = X509_get_pubkey(cert);
+    RSA *rsa = EVP_PKEY_get1_RSA(cert_key);
+    int key_length = RSA_size(rsa);
+
+    if(key_length >= MINKEYSIZE){
+        
+        valid_key = true;
+    } 
+    RSA_free(rsa);
+    return valid_key;
+}
+bool
+check_overall_name(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *website){
+    bool valid_name = false;
+    if(check_common_name(cert, website)){
+        valid_name = true;
+    } else {
+        valid_name = check_subject_alt(ext_list, cert, website);
+    }
+    return valid_name;
+}
+
+bool
+check_time(X509 *cert){
+
+    // current time 
+    time_t rawtime;    
+    time(&rawtime);
+    localtime (&rawtime);
+    ASN1_TIME *current = NULL;
+    ASN1_TIME_set(current, rawtime);
+
+    // get before
+    ASN1_TIME *before_time = X509_get_notBefore(cert);
+        
+    // get after
+    ASN1_TIME *after_time = X509_get_notAfter(cert);
+
+    // check before time
+    bool valid_before = valid_time(before_time, current);
+    bool valid_after = valid_time(current, after_time);
+
+    return valid_before && valid_after;
+       
+}
+
+bool 
+valid_time(ASN1_TIME *before, ASN1_TIME *after){
+    int pday, psec;
+    ASN1_TIME_diff(&pday, &psec, before, after);
+    if(pday > 0 || psec > 0){
+        return true;
+    } 
+    return false;
+}
+
+
 bool 
 check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *website) {
     bool valid = false;
     char *extension_data = get_extension_data(ext_list, cert, NID_subject_alt_name);
     if(extension_data!=NULL){
-        printf("%s\n", extension_data);
-        /* Extract the path from the http request in the buffer*/
+        
+        /* Get each DNS query  */
         char *query = extension_data;
         while ((query= strtok(query, ", ")) != NULL) {
-        
+            // Extract the Subject Alternative Names from each query
             char *alt_name = malloc(strlen(query));
             strcpy(alt_name, query);
             alt_name+=strlen(DNS);
@@ -214,13 +271,12 @@ check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *we
 
 bool
 check_common_name(X509 *cert, char* website){
-        // get common name 
-        X509_NAME *common_name = NULL;
-        common_name = X509_get_subject_name(cert);
-        char domain_cn[256] = "Domain CN NOT FOUND";
-        X509_NAME_get_text_by_NID(common_name, NID_commonName, domain_cn, 256);
-        return check_name(domain_cn, website);
-        
+    // get common name 
+    X509_NAME *common_name = NULL;
+    common_name = X509_get_subject_name(cert);
+    char domain_cn[256] = "Domain CN NOT FOUND";
+    X509_NAME_get_text_by_NID(common_name, NID_commonName, domain_cn, 256);
+    return check_name(domain_cn, website);   
 }
 bool
 check_name(char* name, char *website){
@@ -248,9 +304,11 @@ check_wildcard(char *name, char *website){
         strcpy(website_copy, website);
         
 
-        // remove WWW if it has it
+        // remove WWW, if no www -> invalid as need a subdomain
         if(check_www(website)){
             website_copy+=strlen(WWW);
+        } else {
+            return false;
         }
         
         if(strcmp(domain_copy, website_copy)==0){
@@ -266,7 +324,7 @@ check_www(char* website){
     strncpy(checker, website, strlen(WWW));
     checker[strlen(WWW)] = '\0';
     if(strcmp(checker, WWW)==0){
-        printf("IT HAS WWW.\n" );
+       
         return true;
     }
     return false;
@@ -296,7 +354,7 @@ get_extension_data(const STACK_OF(X509_EXTENSION) *ext_list,
         ASN1_OBJECT *basic_obj = X509_EXTENSION_get_object(basic);
         char basic_buff[1024]; 
         OBJ_obj2txt(basic_buff, 1024, basic_obj, 0);
-        printf("Extension = %s\n", basic_buff);
+        
         extension_data = ext_data(basic);
     
     }
@@ -307,24 +365,23 @@ get_extension_data(const STACK_OF(X509_EXTENSION) *ext_list,
 char *
 ext_data(X509_EXTENSION *extension) {
 
-        BUF_MEM *bptr = NULL;
-        char *buf = NULL;
-        BIO *bio = BIO_new(BIO_s_mem());
-        if (!X509V3_EXT_print(bio, extension, 0, 0))
-        {
-            fprintf(stderr, "Error in reading extensions");
-        } 
+    BUF_MEM *bptr = NULL;
+    char *buf = NULL;
+    BIO *bio = BIO_new(BIO_s_mem());
+    if (!X509V3_EXT_print(bio, extension, 0, 0)) {
+        fprintf(stderr, "Error in reading extensions");
+    } 
         
 
-        BIO_flush(bio);
-        BIO_get_mem_ptr(bio, &bptr);
+    BIO_flush(bio);
+    BIO_get_mem_ptr(bio, &bptr);
         
         
-        //bptr->data is not NULL terminated - add null character
-        buf = (char *)malloc((bptr->length + 1) * sizeof(char));
-        memcpy(buf, bptr->data, bptr->length);
-        buf[bptr->length] = '\0';
-        
-        BIO_free_all(bio);
-        return buf;
+    //bptr->data is not NULL terminated - add null character
+    buf = (char *)malloc((bptr->length + 1) * sizeof(char));
+    memcpy(buf, bptr->data, bptr->length);
+    buf[bptr->length] = '\0';
+       
+    BIO_free_all(bio);
+    return buf;
 }
