@@ -17,7 +17,6 @@
 #define WILDCARD_START 2
 #define CA_CONSTRAINT "CA:FALSE"
 #define WILDCARD "*."
-#define WWW "www."
 #define DNS "DNS:"
 #define TLS "TLS Web Server Authentication"
 #define VALID ",1\r\n"
@@ -37,7 +36,6 @@ bool check_key(X509 *cert);
 bool valid_time(ASN1_TIME *cert_time, ASN1_TIME *current_time);
 bool check_containing(char *extension_data, char *constraint);
 bool valid_wildcard(char *domain_cn);
-bool check_www(char* website);
 bool check_subject_alt(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *website);
 bool check_overall_name(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert, char *website);
 bool check_extended_key(const STACK_OF(X509_EXTENSION) *ext_list, X509 *cert);
@@ -316,19 +314,6 @@ check_wildcard(char *name, char *website){
     return false;
 }
 
-bool
-check_www(char* website){
-
-   
-    char *checker = (char*) malloc(sizeof(char) * strlen(WWW)+1);
-    strncpy(checker, website, strlen(WWW));
-    checker[strlen(WWW)] = '\0';
-    if(strcmp(checker, WWW)==0){
-       
-        return true;
-    }
-    return false;
-}
 
 bool 
 valid_wildcard(char *domain_cn){
