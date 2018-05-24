@@ -231,7 +231,7 @@ check_containing(char *extension_data, char *constraint){
 
 /****************************************************************************************/
 
-/* Returns true if key size is below MINKEYSIZE */
+/* Returns true if key size is greater than or equal to MINKEYSIZE */
 
 bool 
 check_key(X509 *cert){
